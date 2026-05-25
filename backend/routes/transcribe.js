@@ -1,11 +1,9 @@
 const express = require("express");
+const router = express.Router();
+
 const fs = require("fs");
 
 const { createClient } = require("@deepgram/sdk");
-
-const router = express.Router();
-
-const Transcription = require("../models/Transcription");
 
 const deepgram = createClient(
   process.env.DEEPGRAM_API_KEY
@@ -13,47 +11,48 @@ const deepgram = createClient(
 
 router.post("/", async (req, res) => {
   try {
+
+    console.log("FILE:", req.file);
+
     if (!req.file) {
       return res.status(400).json({
-        message: "No file uploaded",
+        error: "No file uploaded",
       });
     }
 
-    const audio = fs.readFileSync(req.file.path);
+    const audioBuffer = fs.readFileSync(
+      req.file.path
+    );
 
     const response =
       await deepgram.listen.prerecorded.transcribeFile(
-        audio,
+        audioBuffer,
         {
+          mimetype: "audio/webm",
           model: "nova-2",
           smart_format: true,
         }
       );
 
+    console.log(
+      JSON.stringify(response, null, 2)
+    );
+
     const transcript =
       response.result.results.channels[0]
-        .alternatives[0].transcript;
-
-    const newFile = new Transcription({
-      fileName: req.file.filename,
-      filePath: req.file.path,
-      transcription: transcript,
-    });
-
-    await newFile.save();
+      .alternatives[0].transcript;
 
     res.json({
-      message: "Transcription Successful",
       transcription: transcript,
-      file: newFile,
     });
 
   } catch (error) {
-    console.log(error);
+
+    console.error("DEEPGRAM ERROR:");
+    console.error(error);
 
     res.status(500).json({
-      message: "Server Error",
-      error,
+      error: error.message,
     });
   }
 });
