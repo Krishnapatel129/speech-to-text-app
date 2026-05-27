@@ -1,60 +1,148 @@
-require("dotenv").config();
-
 const express = require("express");
-const multer = require("multer");
+const http = require("http");
 const cors = require("cors");
+const dotenv = require("dotenv");
 const mongoose = require("mongoose");
-const path = require("path");
 
-const transcribeRoute = require("./routes/transcribe");
+const { Server } = require("socket.io");
+const { createClient } = require("@deepgram/sdk");
+
+const Transcription = require("./models/Transcription");
+
+dotenv.config();
 
 const app = express();
 
 app.use(cors());
-app.use(express.json());
 
 
 
 mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB Connected"))
-  .catch((err) => console.log(err));
+  .connect(
+    "mongodb://127.0.0.1:27017/speech_to_text"
+  )
+  .then(() => {
+    console.log("MongoDB Connected");
+  })
+  .catch((err) => {
+    console.log(err);
+  });
 
 
+const server = http.createServer(app);
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, "uploads/");
-  },
-
-  filename: (req, file, cb) => {
-    cb(
-      null,
-      Date.now() + path.extname(file.originalname)
-    );
+const io = new Server(server, {
+  cors: {
+    origin: "*",
   },
 });
 
-const upload = multer({ storage });
 
 
-
-app.use(
-  "/transcribe",
-  upload.single("audio"),
-  transcribeRoute
+const deepgram = createClient(
+  process.env.DEEPGRAM_API_KEY
 );
 
 
 
-app.get("/", (req, res) => {
-  res.send("Backend Running");
+io.on("connection", (socket) => {
+
+  console.log("Client Connected");
+
+
+  let fullTranscript = "";
+
+
+  
+  const deepgramLive =
+    deepgram.listen.live({
+      model: "nova-2",
+      language: "en",
+      smart_format: true,
+    });
+
+
+  
+  deepgramLive.on("Results", (data) => {
+
+    const transcript =
+      data.channel.alternatives[0].transcript;
+
+    if (
+  transcript &&
+  transcript.trim() !== ""
+) {
+
+  
+  fullTranscript += " " + transcript;
+
+  
+  socket.emit(
+    "transcript",
+    transcript
+  );
+}
+  });
+
+
+ 
+  socket.on("audio", (chunk) => {
+
+    if (
+      deepgramLive.getReadyState() === 1
+    ) {
+      deepgramLive.send(chunk);
+    }
+  });
+
+
+  socket.on("stop", async () => {
+
+  try {
+
+  
+    const cleanedTranscript =
+      fullTranscript.trim();
+
+    if (!cleanedTranscript) {
+
+      console.log(
+        "No transcript received"
+      );
+
+      return;
+    }
+
+    
+    await Transcription.create({
+      transcription: cleanedTranscript,
+    });
+
+    console.log(
+      "Transcript Saved To MongoDB"
+    );
+
+  } catch (err) {
+
+    console.log(err);
+  }
+});
+
+  
+  socket.on("disconnect", () => {
+
+    console.log("Client Disconnected");
+
+    deepgramLive.finish();
+  });
+
 });
 
 
 
-const PORT = process.env.PORT || 5000;
+server.listen(5000, () => {
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(
+    "Server running on port 5000"
+  );
 });

@@ -1,108 +1,143 @@
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import io from "socket.io-client";
 
-export default function App() {
-  const [file, setFile] = useState(null);
-  const [recording, setRecording] = useState(false);
-  const [transcript, setTranscript] = useState("");
+const socket = io("http://localhost:5000");
+
+function App() {
+
+  const [transcript, setTranscript] =
+    useState("");
+
+  const [isRecording, setIsRecording] =
+    useState(false);
+
   const mediaRecorderRef = useRef(null);
-  const chunksRef = useRef([]);
-
- 
-  const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
-  };
 
 
-  const handleUpload = () => {
-    if (!file) return alert("Select a file first");
+  useEffect(() => {
 
-    setTranscript("Processing audio...");
+    socket.on("transcript", (data) => {
 
-    setTimeout(() => {
-      setTranscript(
-        "This is a simulated transcription from uploaded audio file."
+      setTranscript((prev) =>
+        prev + " " + data
       );
-    }, 2000);
-  };
+    });
 
-  
+    return () => {
+
+      socket.off("transcript");
+    };
+
+  }, []);
+
+
   const startRecording = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-    mediaRecorderRef.current = new MediaRecorder(stream);
-    chunksRef.current = [];
+    try {
 
-    mediaRecorderRef.current.ondataavailable = (e) => {
-      chunksRef.current.push(e.data);
-    };
+      
+      setTranscript("");
 
-    mediaRecorderRef.current.onstop = () => {
-      setTranscript("Processing recording...");
+      const stream =
+        await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
 
-      setTimeout(() => {
-        setTranscript(
-          "This is a simulated transcription from recorded audio."
-        );
-      }, 2000);
-    };
+      const mediaRecorder =
+        new MediaRecorder(stream, {
+          mimeType: "audio/webm",
+        });
 
-    mediaRecorderRef.current.start();
-    setRecording(true);
+      mediaRecorderRef.current =
+        mediaRecorder;
+
+      setIsRecording(true);
+
+      mediaRecorder.start(250);
+
+      mediaRecorder.ondataavailable =
+        async (event) => {
+
+          if (
+            event.data.size > 0
+          ) {
+
+            const arrayBuffer =
+              await event.data.arrayBuffer();
+
+            socket.emit(
+              "audio",
+              arrayBuffer
+            );
+          }
+        };
+
+    } catch (err) {
+
+      console.log(err);
+
+      alert(
+        "Microphone access denied"
+      );
+    }
   };
 
 
   const stopRecording = () => {
-    mediaRecorderRef.current.stop();
-    setRecording(false);
-  };
 
-  return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-6">
-      <div className="bg-white shadow-lg rounded-2xl p-6 w-full max-w-xl">
+    if (
+      mediaRecorderRef.current &&
+      isRecording
+    ) {
 
-        <h1 className="text-2xl font-bold mb-6 text-center">
-          Real Time Speech to Text 
-        </h1>
-
-        
-        <div className="mb-6">
-          <input type="file" accept="audio/*" onChange={handleFileChange} />
-
-          <button
-            onClick={handleUpload}
-            className="mt-2 bg-blue-500 text-white px-4 py-2 rounded"
-          >
-            Upload File
-          </button>
-        </div>
+      mediaRecorderRef.current.stop();
 
      
-        <div className="mb-6">
-          {!recording ? (
-            <button
-              onClick={startRecording}
-              className="bg-green-500 text-white px-4 py-2 rounded"
-            >
-              Start Recording
-            </button>
-          ) : (
-            <button
-              onClick={stopRecording}
-              className="bg-red-500 text-white px-4 py-2 rounded"
-            >
-              Stop Recording
-            </button>
-          )}
-        </div>
+      socket.emit("stop");
 
-        
-        <div className="bg-gray-50 p-4 rounded border min-h-[120px]">
-          <h2 className="font-semibold mb-2">Transcription:</h2>
-          <p className="text-gray-700">
-            {transcript || "No transcription yet..."}
-          </p>
-        </div>
+      setIsRecording(false);
+    }
+  };
+
+
+  return (
+    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6">
+
+      <h1 className="text-4xl font-bold text-blue-400 mb-8">
+        Real-Time Speech To Text
+      </h1>
+
+      <div className="flex gap-4">
+
+        <button
+          onClick={startRecording}
+          disabled={isRecording}
+          className="bg-green-500 px-5 py-2 rounded-lg disabled:opacity-50"
+        >
+          Start
+        </button>
+
+        <button
+          onClick={stopRecording}
+          disabled={!isRecording}
+          className="bg-red-500 px-5 py-2 rounded-lg disabled:opacity-50"
+        >
+          Stop
+        </button>
+      </div>
+
+      <div className="mt-8 bg-gray-900 p-5 rounded-lg w-full max-w-3xl">
+
+        <h2 className="text-2xl mb-4">
+          Live Transcript
+        </h2>
+
+        <p className="leading-7">
+          {transcript || "Start speaking..."}
+        </p>
       </div>
     </div>
   );
 }
+
+export default App;
