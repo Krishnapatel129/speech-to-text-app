@@ -1,19 +1,21 @@
-const mongoose = require("mongoose");
+const mongoose =
+  require("mongoose");
 
 const transcriptionSchema =
-  new mongoose.Schema({
-    transcription: {
-      type: String,
-      required: true,
+  new mongoose.Schema(
+    {
+      transcription: {
+        type: String,
+        required: true,
+      },
     },
+    {
+      timestamps: true,
+    }
+  );
 
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
-  });
-
-module.exports = mongoose.model(
-  "Transcription",
-  transcriptionSchema
-);
+module.exports =
+  mongoose.model(
+    "Transcription",
+    transcriptionSchema
+  );

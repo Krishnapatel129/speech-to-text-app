@@ -1,148 +1,129 @@
 const express = require("express");
 const http = require("http");
 const cors = require("cors");
-const dotenv = require("dotenv");
 const mongoose = require("mongoose");
 
 const { Server } = require("socket.io");
-const { createClient } = require("@deepgram/sdk");
+
+const {
+  createClient,
+  LiveTranscriptionEvents,
+} = require("@deepgram/sdk");
+
+require("dotenv").config();
 
 const Transcription = require("./models/Transcription");
 
-dotenv.config();
-
 const app = express();
-
 app.use(cors());
-
-
-
-mongoose
-  .connect(
-    "mongodb://127.0.0.1:27017/speech_to_text"
-  )
-  .then(() => {
-    console.log("MongoDB Connected");
-  })
-  .catch((err) => {
-    console.log(err);
-  });
-
 
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-  },
+  cors: { origin: "*" },
 });
 
+// MongoDB
+mongoose
+  .connect("mongodb://127.0.0.1:27017/speech_to_text")
+  .then(() => console.log("MongoDB Connected"))
+  .catch((err) => console.log(err));
 
-
-const deepgram = createClient(
-  process.env.DEEPGRAM_API_KEY
-);
-
-
+// Deepgram
+const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
 io.on("connection", (socket) => {
-
   console.log("Client Connected");
 
-
   let fullTranscript = "";
+  let isSaved = false;
 
+  // IMPORTANT FIX: correct audio format
+  const dgConnection = deepgram.listen.live({
+    model: "nova-2",
+    language: "en-US",
 
-  
-  const deepgramLive =
-    deepgram.listen.live({
-      model: "nova-2",
-      language: "en",
-      smart_format: true,
+    encoding: "linear16",
+    sample_rate: 16000,
+
+    smart_format: true,
+    interim_results: false,
+  });
+
+  // OPEN
+  dgConnection.on(LiveTranscriptionEvents.Open, () => {
+    console.log("Deepgram Connected");
+
+    // AUDIO STREAM
+    socket.on("audio", (data) => {
+      dgConnection.send(data);
     });
 
+    // STOP
+    socket.on("stop", async () => {
+      console.log("STOP EVENT RECEIVED");
 
-  
-  deepgramLive.on("Results", (data) => {
+      dgConnection.finish();
 
+      setTimeout(async () => {
+        if (isSaved) return;
+        isSaved = true;
+
+        const cleaned = fullTranscript.trim();
+
+        console.log("FINAL TRANSCRIPT:", cleaned);
+
+        if (!cleaned) return;
+
+        const saved = await Transcription.create({
+          transcription: cleaned,
+        });
+
+        console.log("Saved To MongoDB:", saved);
+      }, 2000);
+    });
+
+    // DISCONNECT
+    socket.on("disconnect", () => {
+      dgConnection.finish();
+    });
+  });
+
+  // TRANSCRIPT
+  dgConnection.on(LiveTranscriptionEvents.Transcript, (data) => {
     const transcript =
-      data.channel.alternatives[0].transcript;
+      data.channel?.alternatives?.[0]?.transcript;
 
     if (
-  transcript &&
-  transcript.trim() !== ""
-) {
-
-  
-  fullTranscript += " " + transcript;
-
-  
-  socket.emit(
-    "transcript",
-    transcript
-  );
-}
-  });
-
-
- 
-  socket.on("audio", (chunk) => {
-
-    if (
-      deepgramLive.getReadyState() === 1
+      data.is_final &&
+      transcript &&
+      transcript.trim() !== ""
     ) {
-      deepgramLive.send(chunk);
+      fullTranscript += " " + transcript;
+
+      socket.emit("transcript", transcript);
     }
   });
 
+  // ERROR DEBUG
+  dgConnection.on("error", (err) => {
+    console.log("Deepgram Error:", err);
+  });
+});
 
-  socket.on("stop", async () => {
-
+// HISTORY API
+app.get("/transcriptions", async (req, res) => {
   try {
-
-  
-    const cleanedTranscript =
-      fullTranscript.trim();
-
-    if (!cleanedTranscript) {
-
-      console.log(
-        "No transcript received"
-      );
-
-      return;
-    }
-
-    
-    await Transcription.create({
-      transcription: cleanedTranscript,
+    const data = await Transcription.find().sort({
+      createdAt: -1,
     });
 
-    console.log(
-      "Transcript Saved To MongoDB"
-    );
-
+    res.json(data);
   } catch (err) {
-
-    console.log(err);
+    res.status(500).json({ error: err.message });
   }
 });
 
-  
-  socket.on("disconnect", () => {
-
-    console.log("Client Disconnected");
-
-    deepgramLive.finish();
-  });
-
-});
-
-
-
 server.listen(5000, () => {
-
-  console.log(
-    "Server running on port 5000"
-  );
+  console.log("Server running on port 5000");
 });
