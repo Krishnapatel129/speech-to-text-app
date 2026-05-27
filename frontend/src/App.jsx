@@ -7,26 +7,38 @@ function App() {
   const [transcript, setTranscript] = useState("");
   const [history, setHistory] = useState([]);
   const [isRecording, setIsRecording] = useState(false);
+  const [error, setError] = useState("");
 
   const mediaRecorderRef = useRef(null);
 
+  
   useEffect(() => {
     socket.on("transcript", (data) => {
       setTranscript((prev) => prev + " " + data);
     });
 
-    return () => socket.off("transcript");
+    socket.on("error", (data) => {
+      setError(data.message);
+    });
+
+    return () => {
+      socket.off("transcript");
+      socket.off("error");
+    };
   }, []);
 
   
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const res = await fetch("http://localhost:5000/transcriptions");
+        const res = await fetch(
+          "http://localhost:5000/transcriptions"
+        );
+
         const data = await res.json();
         setHistory(data);
       } catch (err) {
-        console.log(err);
+        setError("Failed to load history");
       }
     };
 
@@ -36,15 +48,30 @@ function App() {
   
   const startRecording = async () => {
     try {
+      setError("");
       setTranscript("");
+
+      if (
+        !navigator.mediaDevices ||
+        !navigator.mediaDevices.getUserMedia
+      ) {
+        throw new Error("Microphone not supported");
+      }
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
       });
 
-      const audioContext = new AudioContext({ sampleRate: 16000 });
+      const audioContext = new AudioContext({
+        sampleRate: 16000,
+      });
+
       const source = audioContext.createMediaStreamSource(stream);
-      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      const processor = audioContext.createScriptProcessor(
+        4096,
+        1,
+        1
+      );
 
       source.connect(processor);
       processor.connect(audioContext.destination);
@@ -61,7 +88,11 @@ function App() {
 
         for (let i = 0; i < input.length; i++, offset += 2) {
           let s = Math.max(-1, Math.min(1, input[i]));
-          view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+          view.setInt16(
+            offset,
+            s < 0 ? s * 0x8000 : s * 0x7fff,
+            true
+          );
         }
 
         socket.emit("audio", buffer);
@@ -73,102 +104,93 @@ function App() {
         audioContext,
       };
     } catch (err) {
-      alert("Microphone not allowed");
-      console.log(err);
+      setError(err.message || "Microphone error");
+      setIsRecording(false);
     }
   };
 
-  
+ 
   const stopRecording = () => {
-    if (mediaRecorderRef.current) {
-      const { stream, processor, audioContext } =
-        mediaRecorderRef.current;
+    try {
+      if (mediaRecorderRef.current) {
+        const { stream, processor, audioContext } =
+          mediaRecorderRef.current;
 
-      stream.getTracks().forEach((t) => t.stop());
-      processor.disconnect();
-      audioContext.close();
+        stream.getTracks().forEach((t) => t.stop());
+        processor.disconnect();
+        audioContext.close();
+      }
+
+      socket.emit("stop");
+      setIsRecording(false);
+    } catch (err) {
+      setError("Failed to stop recording");
     }
-
-    socket.emit("stop");
-    setIsRecording(false);
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-white px-6 py-10">
 
       
-      <div className="text-center mb-10">
-        <h1 className="text-4xl font-extrabold tracking-tight text-blue-400">
-          🎤 Speech to Text AI
+      <div className="text-center mb-8">
+        <h1 className="text-3xl font-bold text-blue-400">
+          Speech To Text AI
         </h1>
-        <p className="text-gray-400 mt-2">
-          Real-time transcription powered by Deepgram
-        </p>
       </div>
 
-     
-      <div className="flex justify-center gap-4 mb-8">
+      
+      {error && (
+        <div className="max-w-2xl mx-auto mb-6 bg-red-500/20 border border-red-500 text-red-300 px-4 py-2 rounded-lg">
+          ⚠️ {error}
+        </div>
+      )}
+
+      
+      <div className="flex justify-center gap-4 mb-6">
         <button
           onClick={startRecording}
           disabled={isRecording}
-          className="px-6 py-3 rounded-full bg-green-500 hover:bg-green-600 transition-all shadow-lg disabled:opacity-40"
+          className="bg-green-500 px-5 py-2 rounded hover:bg-green-600 disabled:opacity-40"
         >
-          ▶ Start Recording
+          Start
         </button>
 
         <button
           onClick={stopRecording}
           disabled={!isRecording}
-          className="px-6 py-3 rounded-full bg-red-500 hover:bg-red-600 transition-all shadow-lg disabled:opacity-40"
+          className="bg-red-500 px-5 py-2 rounded hover:bg-red-600 disabled:opacity-40"
         >
-          ■ Stop
+          Stop
         </button>
       </div>
 
-      {/* LIVE TRANSCRIPT CARD */}
-      <div className="max-w-3xl mx-auto mb-10">
-        <div className="bg-gray-800/60 backdrop-blur-md border border-gray-700 rounded-2xl p-6 shadow-xl">
-          <h2 className="text-lg font-semibold text-blue-300 mb-3">
-            Live Transcript
-          </h2>
-
-          <p className="text-gray-200 leading-relaxed min-h-[60px]">
-            {transcript || "Start speaking to see live transcription..."}
-          </p>
-        </div>
+      
+      <div className="max-w-3xl mx-auto bg-slate-900 p-5 rounded-xl mb-8">
+        <h2 className="text-lg mb-2 text-blue-300">
+          Live Transcript
+        </h2>
+        <p>{transcript || "Start speaking..."}</p>
       </div>
 
-      {/* HISTORY SECTION */}
+     
       <div className="max-w-5xl mx-auto">
-        <h2 className="text-2xl font-bold mb-6 text-center text-white">
-          📜 Previous Transcriptions
+        <h2 className="text-xl mb-4 text-center">
+          History
         </h2>
 
-        {history.length === 0 ? (
-          <p className="text-center text-gray-400">
-            No history found
-          </p>
-        ) : (
-          <div className="grid md:grid-cols-2 gap-6">
-            {history.map((item) => (
-              <div
-                key={item._id}
-                className="bg-gray-800/50 border border-gray-700 rounded-2xl p-5 shadow-lg hover:scale-[1.02] transition-transform duration-300"
-              >
-                <p className="text-gray-100 text-sm leading-relaxed">
-                  {item.transcription}
-                </p>
-
-                <div className="mt-4 text-xs text-gray-400 flex justify-between">
-                  <span>🕒 Saved</span>
-                  <span>
-                    {new Date(item.createdAt).toLocaleString()}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="grid md:grid-cols-2 gap-4">
+          {history.map((item) => (
+            <div
+              key={item._id}
+              className="bg-slate-900 p-4 rounded-lg border border-slate-700"
+            >
+              <p>{item.transcription}</p>
+              <small className="text-gray-400">
+                {new Date(item.createdAt).toLocaleString()}
+              </small>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

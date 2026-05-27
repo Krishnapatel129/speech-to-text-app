@@ -27,7 +27,7 @@ const io = new Server(server, {
 mongoose
   .connect("mongodb://127.0.0.1:27017/speech_to_text")
   .then(() => console.log("MongoDB Connected"))
-  .catch((err) => console.log(err));
+  .catch((err) => console.log("Mongo Error:", err));
 
 
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
@@ -38,51 +38,63 @@ io.on("connection", (socket) => {
   let fullTranscript = "";
   let isSaved = false;
 
-  // IMPORTANT FIX: correct audio format
   const dgConnection = deepgram.listen.live({
     model: "nova-2",
     language: "en-US",
-
     encoding: "linear16",
     sample_rate: 16000,
-
     smart_format: true,
     interim_results: false,
   });
 
-  
   dgConnection.on(LiveTranscriptionEvents.Open, () => {
     console.log("Deepgram Connected");
 
+    // AUDIO STREAM
     socket.on("audio", (data) => {
-      dgConnection.send(data);
+      try {
+        dgConnection.send(data);
+      } catch (err) {
+        console.log("Audio Error:", err);
+        socket.emit("error", { message: "Audio streaming failed" });
+      }
     });
 
     
     socket.on("stop", async () => {
-      console.log("STOP EVENT RECEIVED");
+      try {
+        console.log("STOP EVENT RECEIVED");
 
-      dgConnection.finish();
+        dgConnection.finish();
 
-      setTimeout(async () => {
-        if (isSaved) return;
-        isSaved = true;
+        setTimeout(async () => {
+          if (isSaved) return;
+          isSaved = true;
 
-        const cleaned = fullTranscript.trim();
+          const cleaned = fullTranscript.trim();
 
-        console.log("FINAL TRANSCRIPT:", cleaned);
+          if (!cleaned) {
+            socket.emit("error", {
+              message: "No speech detected",
+            });
+            return;
+          }
 
-        if (!cleaned) return;
+          const saved = await Transcription.create({
+            transcription: cleaned,
+          });
 
-        const saved = await Transcription.create({
-          transcription: cleaned,
+          console.log("Saved To MongoDB:", saved);
+        }, 2000);
+      } catch (err) {
+        console.log("Stop Error:", err);
+        socket.emit("error", {
+          message: "Failed to save transcription",
         });
-
-        console.log("Saved To MongoDB:", saved);
-      }, 2000);
+      }
     });
 
-    
+   
     socket.on("disconnect", () => {
       dgConnection.finish();
     });
@@ -104,9 +116,13 @@ io.on("connection", (socket) => {
     }
   });
 
-  
+ 
   dgConnection.on("error", (err) => {
     console.log("Deepgram Error:", err);
+
+    socket.emit("error", {
+      message: "Speech recognition failed",
+    });
   });
 });
 
