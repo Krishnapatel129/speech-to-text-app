@@ -23,13 +23,13 @@ const io = new Server(server, {
   cors: { origin: "*" },
 });
 
-// MongoDB
+
 mongoose
   .connect("mongodb://127.0.0.1:27017/speech_to_text")
   .then(() => console.log("MongoDB Connected"))
   .catch((err) => console.log(err));
 
-// Deepgram
+
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
 io.on("connection", (socket) => {
@@ -50,16 +50,15 @@ io.on("connection", (socket) => {
     interim_results: false,
   });
 
-  // OPEN
+  
   dgConnection.on(LiveTranscriptionEvents.Open, () => {
     console.log("Deepgram Connected");
 
-    // AUDIO STREAM
     socket.on("audio", (data) => {
       dgConnection.send(data);
     });
 
-    // STOP
+    
     socket.on("stop", async () => {
       console.log("STOP EVENT RECEIVED");
 
@@ -83,13 +82,13 @@ io.on("connection", (socket) => {
       }, 2000);
     });
 
-    // DISCONNECT
+    
     socket.on("disconnect", () => {
       dgConnection.finish();
     });
   });
 
-  // TRANSCRIPT
+  
   dgConnection.on(LiveTranscriptionEvents.Transcript, (data) => {
     const transcript =
       data.channel?.alternatives?.[0]?.transcript;
@@ -105,13 +104,13 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ERROR DEBUG
+  
   dgConnection.on("error", (err) => {
     console.log("Deepgram Error:", err);
   });
 });
 
-// HISTORY API
+
 app.get("/transcriptions", async (req, res) => {
   try {
     const data = await Transcription.find().sort({
