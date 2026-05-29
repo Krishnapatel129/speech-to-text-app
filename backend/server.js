@@ -2,9 +2,7 @@ const express = require("express");
 const http = require("http");
 const cors = require("cors");
 const mongoose = require("mongoose");
-
 const { Server } = require("socket.io");
-
 const {
   createClient,
   LiveTranscriptionEvents,
@@ -15,116 +13,176 @@ require("dotenv").config();
 const Transcription = require("./models/Transcription");
 
 const app = express();
+
 app.use(cors());
+app.use(express.json());
 
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  cors: { origin: "*" },
+  cors: {
+    origin: "*",
+  },
 });
+
 
 
 mongoose
   .connect("mongodb://127.0.0.1:27017/speech_to_text")
   .then(() => console.log("MongoDB Connected"))
-  .catch((err) => console.log("Mongo Error:", err));
+  .catch((err) => console.error("MongoDB Error:", err));
+
 
 
 const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 
-io.on("connection", (socket) => {
-  console.log("Client Connected");
 
+
+io.on("connection", (socket) => {
+  console.log("Client Connected:", socket.id);
+
+  let dg = null;
   let fullTranscript = "";
   let isSaved = false;
 
-  const dgConnection = deepgram.listen.live({
-    model: "nova-2",
-    language: "en-US",
-    encoding: "linear16",
-    sample_rate: 16000,
-    smart_format: true,
-    interim_results: false,
-  });
 
-  dgConnection.on(LiveTranscriptionEvents.Open, () => {
-    console.log("Deepgram Connected");
+  const createDeepgramSession = () => {
+    dg = deepgram.listen.live({
+      model: "nova-2",
+      language: "en-US",
+      encoding: "linear16",
+      sample_rate: 16000,
+      interim_results: true,
+      smart_format: true,
+    });
 
-    // AUDIO STREAM
-    socket.on("audio", (data) => {
+    dg.on(LiveTranscriptionEvents.Open, () => {
+      console.log("Deepgram Connected");
+    });
+
+    dg.on(LiveTranscriptionEvents.Transcript, (data) => {
       try {
-        dgConnection.send(data);
+        const text =
+          data.channel?.alternatives?.[0]?.transcript;
+
+        if (!text) return;
+
+        console.log("LIVE:", text);
+
+        socket.emit("transcript", text);
+
+        if (data.is_final) {
+          fullTranscript += " " + text;
+        }
       } catch (err) {
-        console.log("Audio Error:", err);
-        socket.emit("error", { message: "Audio streaming failed" });
+        console.error("Transcript Error:", err);
       }
     });
 
-    
-    socket.on("stop", async () => {
+    dg.on(LiveTranscriptionEvents.Error, (err) => {
+      console.error("Deepgram Error:", err);
+
+      socket.emit("error", {
+        message: "Speech recognition service unavailable",
+      });
+    });
+
+    dg.on(LiveTranscriptionEvents.Close, () => {
+      console.log("Deepgram Connection Closed");
+    });
+  };
+
+  
+  socket.on("start", (data = {}) => {
+    const userId = data.userId;
+
+    console.log("START from:", userId);
+
+    fullTranscript = "";
+    isSaved = false;
+
+    if (dg) {
+      dg.finish();
+      dg = null;
+    }
+
+    createDeepgramSession();
+  });
+
+  
+  socket.on("audio", (data) => {
+    try {
+      if (dg && dg.getReadyState() === 1) {
+        dg.send(Buffer.from(data));
+      }
+    } catch (err) {
+      console.error("Audio Error:", err);
+
+      socket.emit("error", {
+        message: "Audio stream error",
+      });
+    }
+  });
+
+
+  socket.on("stop", (data = {}) => {
+    const userId = data.userId;
+
+    console.log("User stopped:", userId);
+
+    if (dg) {
+      dg.finish();
+      dg = null;
+    }
+
+    setTimeout(async () => {
       try {
-        console.log("STOP EVENT RECEIVED");
+        if (isSaved) return;
+        isSaved = true;
 
-        dgConnection.finish();
+        const cleaned = fullTranscript.trim();
 
-        setTimeout(async () => {
-          if (isSaved) return;
-          isSaved = true;
-
-          const cleaned = fullTranscript.trim();
-
-          if (!cleaned) {
-            socket.emit("error", {
-              message: "No speech detected",
-            });
-            return;
-          }
-
-          const saved = await Transcription.create({
-            transcription: cleaned,
+        if (!cleaned) {
+          socket.emit("error", {
+            message: "No speech detected",
           });
+          return;
+        }
 
-          console.log("Saved To MongoDB:", saved);
-        }, 2000);
+        const saved = await Transcription.create({
+          transcription: cleaned,
+        });
+
+        console.log("Transcription Saved");
+
+        socket.emit("saved", saved);
+
+        const history = await Transcription.find().sort({
+          createdAt: -1,
+        });
+
+        socket.emit("history", history);
       } catch (err) {
-        console.log("Stop Error:", err);
+        console.error("Mongo Save Error:", err);
+
         socket.emit("error", {
           message: "Failed to save transcription",
         });
       }
-    });
-
-   
-    socket.on("disconnect", () => {
-      dgConnection.finish();
-    });
-  });
-
-  
-  dgConnection.on(LiveTranscriptionEvents.Transcript, (data) => {
-    const transcript =
-      data.channel?.alternatives?.[0]?.transcript;
-
-    if (
-      data.is_final &&
-      transcript &&
-      transcript.trim() !== ""
-    ) {
-      fullTranscript += " " + transcript;
-
-      socket.emit("transcript", transcript);
-    }
+    }, 1500);
   });
 
  
-  dgConnection.on("error", (err) => {
-    console.log("Deepgram Error:", err);
+  socket.on("disconnect", () => {
+    console.log("Client Disconnected");
 
-    socket.emit("error", {
-      message: "Speech recognition failed",
-    });
+    if (dg) {
+      dg.finish();
+      dg = null;
+    }
   });
 });
+
 
 
 app.get("/transcriptions", async (req, res) => {
@@ -133,11 +191,17 @@ app.get("/transcriptions", async (req, res) => {
       createdAt: -1,
     });
 
-    res.json(data);
+    res.status(200).json(data);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+
+    res.status(500).json({
+      message: "Failed to load transcription history",
+    });
   }
 });
+
+
 
 server.listen(5000, () => {
   console.log("Server running on port 5000");
