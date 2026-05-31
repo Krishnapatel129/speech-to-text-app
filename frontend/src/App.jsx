@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import io from "socket.io-client";
+import socket from "./socket";
 import { supabase } from "./supabaseClient";
 
 
