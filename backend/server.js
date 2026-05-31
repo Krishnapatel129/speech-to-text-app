@@ -10,7 +10,9 @@ const io = new Server(server, {
 });
 
 app.get("/", (req, res) => res.send("OK"));
-
+app.get("/transcriptions", (req, res) => {
+  res.json([]);
+});
 server.listen(process.env.PORT || 5000, () => {
   console.log("SERVER RUNNING");
 });
