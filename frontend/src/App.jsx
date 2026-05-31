@@ -27,10 +27,9 @@ const [authLoading, setAuthLoading] = useState(true);
  const fetchHistory = async () => {
   try {
     
-    const res = await fetch(
-  "https://speech-to-text-app-1.onrender.com/transcriptions"
+   const res = await fetch(
+  "https://speech-to-text-app-1-h8o2.onrender.com/transcriptions"
 );
-
     const contentType = res.headers.get("content-type") || "";
     if (!res.ok) {
       // If backend returns HTML (404 page), prevent JSON parse crash.
