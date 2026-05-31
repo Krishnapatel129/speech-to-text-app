@@ -125,12 +125,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("audio", (data) => {
-    try {
-      if (dg) {
-        dg.send(Buffer.from(data));
-      }
-    } catch (err) {
-      console.error("Audio Error:", err);
+    if (dg) {
+      dg.send(Buffer.from(data));
     }
   });
 
@@ -152,25 +148,17 @@ io.on("connection", (socket) => {
           return;
         }
 
-        let saved = null;
-
-        if (mongoose.connection.readyState === 1) {
-          saved = await Transcription.create({
-            transcription: cleaned,
-          });
-        }
+        const saved = await Transcription.create({
+          transcription: cleaned,
+        });
 
         socket.emit("saved", saved);
 
-        let history = [];
-
-        if (mongoose.connection.readyState === 1) {
-          history = await Transcription.find().sort({ createdAt: -1 });
-        }
+        const history = await Transcription.find().sort({ createdAt: -1 });
 
         socket.emit("history", history);
       } catch (err) {
-        console.error("Save Error:", err);
+        console.error(err);
         socket.emit("error", { message: "Failed to save transcription" });
       }
     }, 1000);
@@ -183,84 +171,6 @@ io.on("connection", (socket) => {
     }
   });
 });
-
-  /* START */
-  socket.on("start", () => {
-    fullTranscript = "";
-    isSaved = false;
-
-    if (dg) {
-      dg.finish();
-      dg = null;
-    }
-
-    createDeepgramSession();
-  });
-
-  /* AUDIO */
-  socket.on("audio", (data) => {
-    try {
-      if (dg){
-        dg.send(Buffer.from(data));
-      }
-    } catch (err) {
-      console.error("Audio Error:", err);
-    }
-  });
-
-  /* STOP */
-  socket.on("stop", async () => {
-    if (dg) {
-      dg.finish();
-      dg = null;
-    }
-
-    setTimeout(async () => {
-      try {
-        if (isSaved) return;
-        isSaved = true;
-
-        const cleaned = fullTranscript.trim();
-
-        if (!cleaned) {
-          socket.emit("error", { message: "No speech detected" });
-          return;
-        }
-
-        let saved = null;
-
-        if (mongoose.connection.readyState === 1) {
-          saved = await Transcription.create({
-            transcription: cleaned,
-          });
-        }
-
-        socket.emit("saved", saved);
-
-        let history = [];
-
-        if (mongoose.connection.readyState === 1) {
-          history = await Transcription.find().sort({
-            createdAt: -1,
-          });
-        }
-
-        socket.emit("history", history);
-      } catch (err) {
-        console.error("Save Error:", err);
-        socket.emit("error", { message: "Failed to save transcription" });
-      }
-    }, 1000);
-  });
-
-  /* DISCONNECT */
-  socket.on("disconnect", () => {
-    if (dg) {
-      dg.finish();
-      dg = null;
-    }
-  });
-
 /* =========================
    START SERVER
 ========================= */
