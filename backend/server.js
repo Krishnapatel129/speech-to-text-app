@@ -14,8 +14,9 @@ const app = express();
    CORS
 ========================= */
 app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST"]
+  origin: "https://speech-to-text-app-rn4b.vercel.app", // ✅ your frontend domain
+  methods: ["GET", "POST"],
+  credentials: true
 }));
 
 app.use(express.json());
@@ -30,8 +31,9 @@ const server = http.createServer(app);
 ========================= */
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
+    origin: "https://speech-to-text-app-rn4b.vercel.app", // ✅ match frontend
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
@@ -109,7 +111,6 @@ io.on("connection", (socket) => {
 
     dg.on(LiveTranscriptionEvents.Transcript, (data) => {
       const text = data.channel?.alternatives?.[0]?.transcript || "";
-
       if (!text) return;
 
       socket.emit("transcript", text);
@@ -200,6 +201,13 @@ io.on("connection", (socket) => {
     }
   });
 });
+
+/* =========================
+   KEEP-ALIVE PING
+========================= */
+setInterval(() => {
+  io.emit("ping", { time: Date.now() });
+}, 25000);
 
 /* =========================
    START SERVER
