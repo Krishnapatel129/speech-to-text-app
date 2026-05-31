@@ -27,18 +27,18 @@ const [authLoading, setAuthLoading] = useState(true);
  const fetchHistory = async () => {
   try {
     
- async function fetchHistory() {
+async function fetchHistory() {
   try {
-    // ✅ Declare the variable properly
-    const response = await fetch("https://speech-to-text-app-1-h8o2.onrender.com/transcriptions", {
+    // ✅ Declare the variable correctly
+    const res = await fetch("https://speech-to-text-app-1-h8o2.onrender.com/transcriptions", {
       credentials: "include"
     });
 
-    if (!response.ok) {
-      throw new Error(`Request failed: ${response.status}`);
+    if (!res.ok) {
+      throw new Error(`Request failed: ${res.status}`);
     }
 
-    const data = await response.json();
+    const data = await res.json();
     return data;
   } catch (err) {
     console.error("fetchHistory error:", err);
