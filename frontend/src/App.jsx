@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import io from "socket.io-client";
 import { supabase } from "./supabaseClient";
 
-const socket = io("http://localhost:5000");
+import socket from "./socket";
 
 export default function App() {
   const [transcript, setTranscript] = useState("");
@@ -24,22 +24,15 @@ const [authLoading, setAuthLoading] = useState(true);
   const mediaRef = useRef(null);
 
  
-  const fetchHistory = async () => {
-    try {
-      const res = await fetch(
-        "http://localhost:5000/transcriptions"
-      );
+ const fetchHistory = async () => {
+  const res = await fetch("http://localhost:5000/transcriptions");
+  const data = await res.json();
+  setHistory(data);
+};
 
-      if (!res.ok) {
-        throw new Error("Failed to load history");
-      }
-
-      const data = await res.json();
-      setHistory(data);
-    } catch (err) {
-      setError("Failed to load transcription history.");
-    }
-  };
+useEffect(() => {
+  fetchHistory();
+}, []);
 
   useEffect(() => {
   supabase.auth.getSession().then(({ data }) => {
@@ -62,7 +55,12 @@ const [authLoading, setAuthLoading] = useState(true);
 
   return () => data.subscription.unsubscribe();
 }, []);
- 
+   useEffect(() => {
+  if (user) {
+    fetchHistory();
+  }
+}, [user]);
+
   useEffect(() => {
   const handleTranscript = (text) => {
     setTranscript((prev) => prev + " " + text);
@@ -202,9 +200,6 @@ const stopRecording = () => {
     console.error("STOP ERROR:", err);
     setError("Failed to stop recording.");
   }
-
-setIsRecording(false);
-setLoading(true);
   };
 
 
@@ -497,7 +492,7 @@ if (page === "signup" && !user) {
           <h2 className="text-2xl font-bold mb-4">
             Transcription History
           </h2>
-
+          
           {history.length === 0 ? (
             <p className="text-gray-400">
               No history found
