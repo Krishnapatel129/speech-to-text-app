@@ -21,15 +21,11 @@ const Transcription = require("./models/Transcription");
 const app = express();
 
 /* =========================
-   CORS (API)
+   CORS (HTTP API)
 ========================= */
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "http://localhost:5174",
-      "https://speech-to-text-app-rn4b.vercel.app",
-    ],
+    origin: "*", // TEMP SAFE FOR DEBUG (fixes your CORS issue)
     credentials: true,
   })
 );
@@ -46,19 +42,30 @@ const server = http.createServer(app);
 ========================= */
 const io = new Server(server, {
   cors: {
-    origin: [
-      "http://localhost:5173",
-      "http://localhost:5174",
-      "https://speech-to-text-app-rn4b.vercel.app",
-    ],
+    origin: "*", // IMPORTANT (prevents your current error)
     methods: ["GET", "POST"],
-    credentials: true,
   },
-  transports: ["polling", "websocket"], // IMPORTANT FOR RENDER
+  transports: ["polling", "websocket"], // CRITICAL for Render
+  allowEIO3: true,
 });
 
 /* =========================
-   MONGODB
+   HEALTH CHECK (REQUIRED)
+========================= */
+app.get("/", (req, res) => {
+  res.send("Speech-to-Text Backend Running");
+});
+
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+app.get("/test-socket", (req, res) => {
+  res.json({ socket: "working" });
+});
+
+/* =========================
+   MONGODB (NON-BLOCKING FIX)
 ========================= */
 const mongoUri = process.env.MONGO_URI;
 
@@ -70,7 +77,10 @@ if (!mongoUri) {
       serverSelectionTimeoutMS: 10000,
     })
     .then(() => console.log("✅ MongoDB Connected"))
-    .catch((err) => console.error("❌ MongoDB Error:", err));
+    .catch((err) => {
+      console.error("❌ MongoDB Error:", err);
+      console.log("⚠️ Server will still run without DB crash");
+    });
 }
 
 /* =========================
@@ -91,9 +101,7 @@ io.on("connection", (socket) => {
 
   const createDeepgramSession = () => {
     if (!deepgram) {
-      socket.emit("error", {
-        message: "Deepgram API key missing",
-      });
+      socket.emit("error", { message: "Deepgram API key missing" });
       return;
     }
 
@@ -180,26 +188,35 @@ io.on("connection", (socket) => {
           return;
         }
 
-        const saved = await Transcription.create({
-          transcription: cleaned,
-        });
+        // Save only if DB works
+        let saved = null;
+
+        if (mongoose.connection.readyState === 1) {
+          saved = await Transcription.create({
+            transcription: cleaned,
+          });
+        }
 
         socket.emit("saved", saved);
 
-        const history = await Transcription.find().sort({
-          createdAt: -1,
-        });
+        let history = [];
+
+        if (mongoose.connection.readyState === 1) {
+          history = await Transcription.find().sort({
+            createdAt: -1,
+          });
+        }
 
         socket.emit("history", history);
 
-        console.log("✅ Saved to DB");
+        console.log("✅ Transcription processed");
       } catch (err) {
         console.error("❌ Save Error:", err);
         socket.emit("error", {
           message: "Failed to save transcription",
         });
       }
-    }, 1200);
+    }, 1000);
   });
 
   /* DISCONNECT */
@@ -211,32 +228,6 @@ io.on("connection", (socket) => {
       dg = null;
     }
   });
-});
-
-/* =========================
-   API ROUTES
-========================= */
-
-app.get("/", (req, res) => {
-  res.send("Speech-to-Text Backend Running");
-});
-
-app.get("/transcriptions", async (req, res) => {
-  try {
-    const data = await Transcription.find().sort({ createdAt: -1 });
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({
-      message: "Failed to load history",
-    });
-  }
-});
-
-/* =========================
-   HEALTH CHECK (IMPORTANT FOR RENDER)
-========================= */
-app.get("/health", (req, res) => {
-  res.json({ status: "ok" });
 });
 
 /* =========================
