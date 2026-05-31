@@ -30,22 +30,8 @@ const [authLoading, setAuthLoading] = useState(true);
       credentials: "include"
     });
 
-    if (!res.ok) {
-      throw new Error(`Request failed: ${res.status}`);
-    }
-
-    const data = await res.json();
-    return data;
-  } catch (err) {
-    console.error("fetchHistory error:", err);
-    return [];
-  }
-};
-
-
-
-
     const contentType = res.headers.get("content-type") || "";
+
     if (!res.ok) {
       // If backend returns HTML (404 page), prevent JSON parse crash.
       if (contentType.includes("application/json")) {
