@@ -34,7 +34,7 @@ app.use(
     origin: [
       "http://localhost:5173",
       "http://localhost:5174",
-      "https://YOUR-VERCEL-FRONTEND.vercel.app"
+      "https://speech-to-text-app.vercel.app"
     ],
     credentials: true,
   })
