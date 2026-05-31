@@ -26,10 +26,10 @@ const [authLoading, setAuthLoading] = useState(true);
  
  const fetchHistory = async () => {
   try {
-    const baseUrl =
-      import.meta.env.VITE_BACKEND_URL ||
-      "https://speech-to-text-backend.onrender.com";
-    const res = await fetch(`${baseUrl}/transcriptions`);
+    
+    const res = await fetch(
+  "https://speech-to-text-app-1.onrender.com/transcriptions"
+);
 
     const contentType = res.headers.get("content-type") || "";
     if (!res.ok) {
