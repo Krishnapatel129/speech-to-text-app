@@ -29,7 +29,7 @@ const [authLoading, setAuthLoading] = useState(true);
     
  async function fetchHistory() {
   try {
-    // ✅ Declare res properly
+    // ✅ Declare the variable properly
     const response = await fetch("https://speech-to-text-app-1-h8o2.onrender.com/transcriptions", {
       credentials: "include"
     });
@@ -45,6 +45,7 @@ const [authLoading, setAuthLoading] = useState(true);
     return [];
   }
 }
+
 
 
     const contentType = res.headers.get("content-type") || "";
