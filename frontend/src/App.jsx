@@ -27,18 +27,25 @@ const [authLoading, setAuthLoading] = useState(true);
  const fetchHistory = async () => {
   try {
     
-  async function fetchHistory() {
-    try {
-      const res = await fetch("https://speech-to-text-app-1-h8o2.onrender.com/transcriptions", {
-        credentials: "include"
-      });
-      if (!res.ok) throw new Error(`Request failed: ${res.status}`);
-      return await res.json();
-    } catch (err) {
-      console.error("fetchHistory error:", err);
-      return [];
+ async function fetchHistory() {
+  try {
+    // ✅ Declare res properly
+    const response = await fetch("https://speech-to-text-app-1-h8o2.onrender.com/transcriptions", {
+      credentials: "include"
+    });
+
+    if (!response.ok) {
+      throw new Error(`Request failed: ${response.status}`);
     }
+
+    const data = await response.json();
+    return data;
+  } catch (err) {
+    console.error("fetchHistory error:", err);
+    return [];
   }
+}
+
 
     const contentType = res.headers.get("content-type") || "";
     if (!res.ok) {
