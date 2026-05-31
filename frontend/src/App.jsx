@@ -26,10 +26,6 @@ const [authLoading, setAuthLoading] = useState(true);
  
  const fetchHistory = async () => {
   try {
-    
-async function fetchHistory() {
-  try {
-    // ✅ Declare the variable properly
     const res = await fetch("https://speech-to-text-app-1-h8o2.onrender.com/transcriptions", {
       credentials: "include"
     });
@@ -44,7 +40,8 @@ async function fetchHistory() {
     console.error("fetchHistory error:", err);
     return [];
   }
-}
+};
+
 
 
 
