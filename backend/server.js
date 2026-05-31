@@ -1,25 +1,19 @@
 const dns = require("dns");
-
 dns.setDefaultResultOrder("ipv4first");
 
-// Force reliable DNS resolvers
 dns.setServers([
   "1.1.1.1",
   "1.0.0.1",
   "8.8.8.8",
   "8.8.4.4",
 ]);
-dns.setDefaultResultOrder("ipv4first");
+
 const express = require("express");
 const http = require("http");
 const cors = require("cors");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
-const {
-  createClient,
-  LiveTranscriptionEvents,
-} = require("@deepgram/sdk");
-
+const { createClient, LiveTranscriptionEvents } = require("@deepgram/sdk");
 require("dotenv").config();
 
 const Transcription = require("./models/Transcription");
@@ -27,14 +21,14 @@ const Transcription = require("./models/Transcription");
 const app = express();
 
 /* =========================
-   CORS
+   CORS (API)
 ========================= */
 app.use(
   cors({
     origin: [
       "http://localhost:5173",
       "http://localhost:5174",
-      "https://speech-to-text-app-rn4b.vercel.app"
+      "https://speech-to-text-app-rn4b.vercel.app",
     ],
     credentials: true,
   })
@@ -43,88 +37,66 @@ app.use(
 app.use(express.json());
 
 /* =========================
-   HTTP + Socket.IO Server
+   HTTP SERVER
 ========================= */
 const server = http.createServer(app);
 
+/* =========================
+   SOCKET.IO (FIXED FOR RENDER)
+========================= */
 const io = new Server(server, {
   cors: {
     origin: [
       "http://localhost:5173",
       "http://localhost:5174",
-      "https://speech-to-text-app-rn4b.vercel.app"
+      "https://speech-to-text-app-rn4b.vercel.app",
     ],
     methods: ["GET", "POST"],
     credentials: true,
   },
+  transports: ["polling", "websocket"], // IMPORTANT FOR RENDER
 });
 
 /* =========================
-   MongoDB
-========================= */
-/* =========================
-   MongoDB
+   MONGODB
 ========================= */
 const mongoUri = process.env.MONGO_URI;
 
-function safeLogMongoUri(uri) {
-  if (!uri) return "<missing MONGO_URI>";
-
-  return uri.replace(
-    /^(mongodb(\+srv)?:\/\/)([^@/]*?)@/,
-    "$1***@"
-  );
-}
-
-function uriType(uri) {
-  if (!uri) return "missing";
-  if (uri.startsWith("mongodb+srv://")) return "mongodb+srv";
-  if (uri.startsWith("mongodb://")) return "mongodb";
-  return "unknown";
-}
-
 if (!mongoUri) {
-  console.error("MongoDB Error: MONGO_URI is not set");
+  console.error("❌ MONGO_URI missing");
 } else {
-  console.log(
-    "MongoDB: attempting connection. URI type:",
-    uriType(mongoUri),
-    "URI:",
-    safeLogMongoUri(mongoUri)
-  );
-
   mongoose
     .connect(mongoUri, {
       serverSelectionTimeoutMS: 10000,
-      maxPoolSize: 5,
     })
-    .then(() => {
-      console.log("MongoDB Connected");
-    })
-    .catch((err) => {
-      console.error("MongoDB Error:", err);
-    });
+    .then(() => console.log("✅ MongoDB Connected"))
+    .catch((err) => console.error("❌ MongoDB Error:", err));
 }
+
 /* =========================
-   Deepgram
+   DEEPGRAM
 ========================= */
 const deepgramApiKey = process.env.DEEPGRAM_API_KEY;
-const deepgram = deepgramApiKey
-  ? createClient(deepgramApiKey)
-  : null;
-
+const deepgram = deepgramApiKey ? createClient(deepgramApiKey) : null;
 
 /* =========================
-   Socket Events
+   SOCKET LOGIC
 ========================= */
 io.on("connection", (socket) => {
-  console.log("Client Connected:", socket.id);
+  console.log("🟢 Client Connected:", socket.id);
 
   let dg = null;
   let fullTranscript = "";
   let isSaved = false;
 
   const createDeepgramSession = () => {
+    if (!deepgram) {
+      socket.emit("error", {
+        message: "Deepgram API key missing",
+      });
+      return;
+    }
+
     dg = deepgram.listen.live({
       model: "nova-2",
       language: "en-US",
@@ -135,42 +107,33 @@ io.on("connection", (socket) => {
     });
 
     dg.on(LiveTranscriptionEvents.Open, () => {
-      console.log("Deepgram Connected");
+      console.log("🟢 Deepgram Connected");
     });
 
     dg.on(LiveTranscriptionEvents.Transcript, (data) => {
-      try {
-        const text =
-          data.channel?.alternatives?.[0]?.transcript || "";
+      const text = data.channel?.alternatives?.[0]?.transcript || "";
+      if (!text) return;
 
-        if (!text) return;
+      socket.emit("transcript", text);
 
-        socket.emit("transcript", text);
-
-        if (data.is_final) {
-          fullTranscript += " " + text;
-        }
-      } catch (err) {
-        console.error("Transcript Error:", err);
+      if (data.is_final) {
+        fullTranscript += " " + text;
       }
     });
 
     dg.on(LiveTranscriptionEvents.Error, (err) => {
-      console.error("Deepgram Error:", err);
-
-      socket.emit("error", {
-        message: "Speech recognition service unavailable",
-      });
+      console.error("❌ Deepgram Error:", err);
+      socket.emit("error", { message: "Speech service error" });
     });
 
     dg.on(LiveTranscriptionEvents.Close, () => {
-      console.log("Deepgram Connection Closed");
+      console.log("🔴 Deepgram Closed");
     });
   };
 
   /* START */
-  socket.on("start", (data = {}) => {
-    console.log("Recording Started");
+  socket.on("start", () => {
+    console.log("🎙 Recording Started");
 
     fullTranscript = "";
     isSaved = false;
@@ -183,7 +146,7 @@ io.on("connection", (socket) => {
     createDeepgramSession();
   });
 
-  /* AUDIO */
+  /* AUDIO STREAM */
   socket.on("audio", (data) => {
     try {
       if (dg && dg.getReadyState() === 1) {
@@ -191,22 +154,12 @@ io.on("connection", (socket) => {
       }
     } catch (err) {
       console.error("Audio Error:", err);
-
-      socket.emit("error", {
-        message: "Audio stream error",
-      });
     }
   });
 
   /* STOP */
   socket.on("stop", async () => {
-    // If deepgram session is missing (no API key), fail gracefully
-    if (!deepgram) {
-      socket.emit("error", { message: "Speech recognition is not configured (missing DEEPGRAM_API_KEY)" });
-      return;
-    }
-
-    console.log("Recording Stopped");
+    console.log("🛑 Recording Stopped");
 
     if (dg) {
       dg.finish();
@@ -216,7 +169,6 @@ io.on("connection", (socket) => {
     setTimeout(async () => {
       try {
         if (isSaved) return;
-
         isSaved = true;
 
         const cleaned = fullTranscript.trim();
@@ -232,9 +184,6 @@ io.on("connection", (socket) => {
           transcription: cleaned,
         });
 
-        // If DB connected but query fails, surface clean message
-        // (handled by outer catch)
-
         socket.emit("saved", saved);
 
         const history = await Transcription.find().sort({
@@ -243,20 +192,19 @@ io.on("connection", (socket) => {
 
         socket.emit("history", history);
 
-        console.log("Transcription Saved");
+        console.log("✅ Saved to DB");
       } catch (err) {
-        console.error("Mongo Save Error:", err);
-
+        console.error("❌ Save Error:", err);
         socket.emit("error", {
           message: "Failed to save transcription",
         });
       }
-    }, 1500);
+    }, 1200);
   });
 
   /* DISCONNECT */
   socket.on("disconnect", () => {
-    console.log("Client Disconnected");
+    console.log("🔴 Client Disconnected");
 
     if (dg) {
       dg.finish();
@@ -266,35 +214,36 @@ io.on("connection", (socket) => {
 });
 
 /* =========================
-   Routes
+   API ROUTES
 ========================= */
 
 app.get("/", (req, res) => {
-  res.send("Speech To Text Backend Running");
+  res.send("Speech-to-Text Backend Running");
 });
 
 app.get("/transcriptions", async (req, res) => {
   try {
-    const data = await Transcription.find().sort({
-      createdAt: -1,
-    });
-
-    res.status(200).json(data);
+    const data = await Transcription.find().sort({ createdAt: -1 });
+    res.json(data);
   } catch (err) {
-    console.error(err);
-
     res.status(500).json({
-      message: "Failed to load transcription history",
+      message: "Failed to load history",
     });
   }
 });
 
 /* =========================
-   Start Server
+   HEALTH CHECK (IMPORTANT FOR RENDER)
 ========================= */
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
 
+/* =========================
+   START SERVER
+========================= */
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
