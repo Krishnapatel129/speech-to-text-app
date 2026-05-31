@@ -1,4 +1,3 @@
-
 const express = require("express");
 const http = require("http");
 const cors = require("cors");
@@ -12,27 +11,17 @@ const Transcription = require("./models/Transcription");
 const app = express();
 
 /* =========================
-   ALLOWED ORIGINS
-========================= */
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:5174",
-  "https://speech-to-text-app-rn4b.vercel.app",
-];
-
-/* =========================
-   CORS MIDDLEWARE
+   CORS
 ========================= */
 app.use(cors({
   origin: "*",
-  methods: ["GET", "POST"],
-  credentials: true
+  methods: ["GET", "POST"]
 }));
 
-
+app.use(express.json());
 
 /* =========================
-   HTTP SERVER
+   SERVER
 ========================= */
 const server = http.createServer(app);
 
@@ -41,13 +30,9 @@ const server = http.createServer(app);
 ========================= */
 const io = new Server(server, {
   cors: {
-    origin: [
-      "http://localhost:5173",
-      "https://speech-to-text-app-rn4b.vercel.app"
-    ],
+    origin: "*",
     methods: ["GET", "POST"]
-  },
-  transports: ["websocket", "polling"]
+  }
 });
 
 /* =========================
@@ -55,19 +40,12 @@ const io = new Server(server, {
 ========================= */
 const mongoUri = process.env.MONGO_URI;
 
-if (!mongoUri) {
-  console.error("❌ MONGO_URI missing");
-} else {
-  mongoose
-    .connect(mongoUri, {
-      serverSelectionTimeoutMS: 10000,
-    })
-    .then(() => console.log("✅ MongoDB Connected"))
-    .catch((err) => {
-      console.error("❌ MongoDB Error:", err);
-      console.log("⚠️ Server running without DB");
-    });
-}
+mongoose.connect(mongoUri)
+  .then(() => console.log("✅ MongoDB Connected"))
+  .catch((err) => {
+    console.error("❌ MongoDB Error:", err);
+    console.log("⚠️ Running without DB");
+  });
 
 /* =========================
    DEEPGRAM
@@ -78,7 +56,6 @@ const deepgram = deepgramApiKey ? createClient(deepgramApiKey) : null;
 /* =========================
    ROUTES
 ========================= */
-
 app.get("/", (req, res) => {
   res.send("Speech-to-Text Backend Running");
 });
@@ -87,7 +64,6 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-/* ✅ FIXED: THIS WAS YOUR 404 ISSUE */
 app.get("/transcriptions", async (req, res) => {
   try {
     if (mongoose.connection.readyState !== 1) {
@@ -97,7 +73,7 @@ app.get("/transcriptions", async (req, res) => {
     const data = await Transcription.find().sort({ createdAt: -1 });
     res.json(data);
   } catch (err) {
-    console.error("Fetch Error:", err);
+    console.error(err);
     res.status(500).json({ message: "Failed to fetch transcriptions" });
   }
 });
@@ -112,6 +88,43 @@ io.on("connection", (socket) => {
   let fullTranscript = "";
   let isSaved = false;
 
+  const createDeepgramSession = () => {
+    if (!deepgram) {
+      socket.emit("error", { message: "Deepgram missing" });
+      return;
+    }
+
+    dg = deepgram.listen.live({
+      model: "nova-2",
+      language: "en-US",
+      encoding: "linear16",
+      sample_rate: 16000,
+      interim_results: true,
+      smart_format: true,
+    });
+
+    dg.on(LiveTranscriptionEvents.Open, () => {
+      console.log("🟢 Deepgram Connected");
+    });
+
+    dg.on(LiveTranscriptionEvents.Transcript, (data) => {
+      const text = data.channel?.alternatives?.[0]?.transcript || "";
+
+      if (!text) return;
+
+      socket.emit("transcript", text);
+
+      if (data.is_final) {
+        fullTranscript += " " + text;
+      }
+    });
+
+    dg.on(LiveTranscriptionEvents.Error, (err) => {
+      console.error("❌ Deepgram Error:", err);
+    });
+  };
+
+  /* START */
   socket.on("start", () => {
     fullTranscript = "";
     isSaved = false;
@@ -124,12 +137,18 @@ io.on("connection", (socket) => {
     createDeepgramSession();
   });
 
+  /* AUDIO */
   socket.on("audio", (data) => {
-    if (dg) {
-      dg.send(Buffer.from(data));
+    try {
+      if (dg) {
+        dg.send(Buffer.from(data));
+      }
+    } catch (err) {
+      console.error("Audio Error:", err);
     }
   });
 
+  /* STOP */
   socket.on("stop", async () => {
     if (dg) {
       dg.finish();
@@ -148,22 +167,32 @@ io.on("connection", (socket) => {
           return;
         }
 
-        const saved = await Transcription.create({
-          transcription: cleaned,
-        });
+        let saved = null;
+
+        if (mongoose.connection.readyState === 1) {
+          saved = await Transcription.create({
+            transcription: cleaned,
+          });
+        }
 
         socket.emit("saved", saved);
 
-        const history = await Transcription.find().sort({ createdAt: -1 });
+        let history = [];
+
+        if (mongoose.connection.readyState === 1) {
+          history = await Transcription.find().sort({ createdAt: -1 });
+        }
 
         socket.emit("history", history);
+
       } catch (err) {
         console.error(err);
-        socket.emit("error", { message: "Failed to save transcription" });
+        socket.emit("error", { message: "Save failed" });
       }
     }, 1000);
   });
 
+  /* DISCONNECT */
   socket.on("disconnect", () => {
     if (dg) {
       dg.finish();
@@ -171,6 +200,7 @@ io.on("connection", (socket) => {
     }
   });
 });
+
 /* =========================
    START SERVER
 ========================= */
