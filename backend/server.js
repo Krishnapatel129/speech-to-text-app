@@ -32,13 +32,18 @@ const allowedOrigins = [
 /* =========================
    CORS MIDDLEWARE
 ========================= */
-app.use(
-  cors({
-    origin: allowedOrigins,
-    credentials: true,
-  })
-);
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
 
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(null, true); // allow all for safety (DEV + Render fix)
+  },
+  credentials: true,
+}));
 app.use(express.json());
 
 /* =========================
@@ -51,12 +56,10 @@ const server = http.createServer(app);
 ========================= */
 const io = new Server(server, {
   cors: {
-    origin: "https://speech-to-text-app-rn4b.vercel.app",
+    origin: "*",
     methods: ["GET", "POST"],
-    credentials: true,
   },
-  transports: ["websocket"], // IMPORTANT (REMOVE polling)
-  allowEIO3: true,
+  transports: ["polling", "websocket"],
 });
 /* =========================
    MONGODB
