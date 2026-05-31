@@ -51,12 +51,13 @@ const server = http.createServer(app);
 ========================= */
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: "https://speech-to-text-app-rn4b.vercel.app",
     methods: ["GET", "POST"],
+    credentials: true,
   },
-  transports: ["polling", "websocket"],
+  transports: ["websocket"], // IMPORTANT (REMOVE polling)
+  allowEIO3: true,
 });
-
 /* =========================
    MONGODB
 ========================= */
