@@ -25,10 +25,31 @@ const [authLoading, setAuthLoading] = useState(true);
 
  
  const fetchHistory = async () => {
-  const res = await fetch("https://speech-to-text-backend.onrender.com/transcriptions");
-  const data = await res.json();
-  setHistory(data);
+  try {
+    const baseUrl =
+      import.meta.env.VITE_BACKEND_URL ||
+      "https://speech-to-text-backend.onrender.com";
+    const res = await fetch(`${baseUrl}/transcriptions`);
+
+    const contentType = res.headers.get("content-type") || "";
+    if (!res.ok) {
+      // If backend returns HTML (404 page), prevent JSON parse crash.
+      if (contentType.includes("application/json")) {
+        const errJson = await res.json();
+        throw new Error(errJson.message || `Request failed: ${res.status}`);
+      }
+      const text = await res.text();
+      throw new Error(`Request failed: ${res.status}. ${text.slice(0, 120)}`);
+    }
+
+    const data = await res.json();
+    setHistory(data);
+  } catch (err) {
+    console.error("fetchHistory error:", err);
+    setError(err.message || "Failed to load history");
+  }
 };
+
 
 useEffect(() => {
   fetchHistory();
