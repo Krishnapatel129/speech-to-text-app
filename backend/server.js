@@ -1,12 +1,3 @@
-const dns = require("dns");
-dns.setDefaultResultOrder("ipv4first");
-
-dns.setServers([
-  "1.1.1.1",
-  "1.0.0.1",
-  "8.8.8.8",
-  "8.8.4.4",
-]);
 
 const express = require("express");
 const http = require("http");
@@ -33,10 +24,12 @@ const allowedOrigins = [
    CORS MIDDLEWARE
 ========================= */
 app.use(cors({
-  origin: "https://speech-to-text-app-rn4b.vercel.app",
+  origin: "*",
   methods: ["GET", "POST"],
   credentials: true
 }));
+
+
 
 /* =========================
    HTTP SERVER
@@ -48,7 +41,7 @@ const server = http.createServer(app);
 ========================= */
 const io = new Server(server, {
   cors: {
-    origin: "https://speech-to-text-app-rn4b.vercel.app",
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
@@ -171,7 +164,7 @@ io.on("connection", (socket) => {
   /* AUDIO */
   socket.on("audio", (data) => {
     try {
-      if (dg && dg.getReadyState() === 1) {
+      if (dg){
         dg.send(Buffer.from(data));
       }
     } catch (err) {
