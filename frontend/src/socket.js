@@ -1,10 +1,5 @@
 import { io } from "socket.io-client";
 
-const socket = io("http://localhost:5000", 
-  {
-    transports: ["websocket"],
-    reconnection: true,
-  }
-);
+const socket = io("https://YOUR-RENDER-BACKEND.onrender.com");
 
 export default socket;

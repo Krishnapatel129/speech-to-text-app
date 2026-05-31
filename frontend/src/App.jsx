@@ -25,7 +25,7 @@ const [authLoading, setAuthLoading] = useState(true);
 
  
  const fetchHistory = async () => {
-  const res = await fetch("http://localhost:5000/transcriptions");
+  const res = await fetch("https://YOUR-RENDER-BACKEND.onrender.com/transcriptions")
   const data = await res.json();
   setHistory(data);
 };
