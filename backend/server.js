@@ -41,9 +41,13 @@ const server = http.createServer(app);
 ========================= */
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: [
+      "http://localhost:5173",
+      "https://speech-to-text-app-rn4b.vercel.app"
+    ],
     methods: ["GET", "POST"]
-  }
+  },
+  transports: ["websocket", "polling"]
 });
 
 /* =========================
@@ -102,51 +106,12 @@ app.get("/transcriptions", async (req, res) => {
    SOCKET LOGIC
 ========================= */
 io.on("connection", (socket) => {
-  console.log("🟢 Client Connected:", socket.id);
+  console.log("🟢 CLIENT CONNECTED:", socket.id);
 
-  let dg = null;
-  let fullTranscript = "";
-  let isSaved = false;
-
-  const createDeepgramSession = () => {
-    if (!deepgram) {
-      socket.emit("error", { message: "Deepgram API key missing" });
-      return;
-    }
-
-    dg = deepgram.listen.live({
-      model: "nova-2",
-      language: "en-US",
-      encoding: "linear16",
-      sample_rate: 16000,
-      interim_results: true,
-      smart_format: true,
-    });
-
-    dg.on(LiveTranscriptionEvents.Open, () => {
-      console.log("🟢 Deepgram Connected");
-    });
-
-    dg.on(LiveTranscriptionEvents.Transcript, (data) => {
-      const text = data.channel?.alternatives?.[0]?.transcript || "";
-      if (!text) return;
-
-      socket.emit("transcript", text);
-
-      if (data.is_final) {
-        fullTranscript += " " + text;
-      }
-    });
-
-    dg.on(LiveTranscriptionEvents.Error, (err) => {
-      console.error("❌ Deepgram Error:", err);
-      socket.emit("error", { message: "Speech service error" });
-    });
-
-    dg.on(LiveTranscriptionEvents.Close, () => {
-      console.log("🔴 Deepgram Closed");
-    });
-  };
+  socket.on("connect_error", (err) => {
+    console.log("❌ CONNECT ERROR:", err.message);
+  });
+});
 
   /* START */
   socket.on("start", () => {
